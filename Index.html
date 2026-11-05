@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>¡Raspa y Gana!</title>
+<script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+<style>
+* { box-sizing: border-box; }
+body {
+font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+background: linear-gradient(135deg, #1e1e2f 0%, #0f0c20 100%);
+min-height: 100vh;
+display: flex;
+flex-direction: column;
+align-items: center;
+justify-content: center;
+margin: 0;
+padding: 20px;
+color: #fff;
+}
+.card-container {
+background: #2a2a40;
+padding: 30px;
+border-radius: 24px;
+box-shadow: 0 20px 40px rgba(0,0,0,0.5);
+text-align: center;
+max-width: 380px;
+width: 100%;
+border: 1px solid rgba(255,255,255,0.1);
+}
+h1 { color: #ffbd59; margin-bottom: 5px; font-size: 26px; }
+p { color: #aaa; font-size: 14px; margin-bottom: 25px; }
+.scratch-area {
+position: relative;
+width: 280px;
+height: 160px;
+margin: 0 auto;
+border-radius: 16px;
+overflow: hidden;
+box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+user-select: none;
+}
+.prize {
+position: absolute;
+top: 0; left: 0; width: 100%; height: 100%;
+display: flex;
+flex-direction: column;
+align-items: center;
+justify-content: center;
+background: #ffffff;
+border: 3px dashed #ffbd59;
+border-radius: 16px;
+padding: 10px;
+color: #222;
+}
+.prize h2 { margin: 0; font-size: 20px; color: #ff5722; }
+.prize p { margin: 5px 0 0; font-size: 18px; font-weight: bold; color: #111; }
+canvas {
+position: absolute;
+top: 0; left: 0;
+cursor: pointer;
+touch-action: none;
+}
+.already-played {
+background: #2a2a40;
+padding: 20px;
+border-radius: 16px;
+border: 1px dashed rgba(255,255,255,0.2);
+}
+.already-played h2 { color: #ff5722; font-size: 22px; margin-bottom: 10px; }
+.already-played p { color: #ccc; font-size: 15px; margin: 0; }
+</style>
+</head>
+<body>
+<div class="card-container" id="mainCard"></div>
+<script>
+const STORAGE_KEY = 'raspadita_jugada_v1';
+const opciones = [
+{ texto: "Intenta de nuevo", tipo: "pierde", peso: 20 },
+{ texto: "Intenta de nuevo x2", tipo: "pierde", peso: 20 },
+{ texto: "Intenta de nuevo x3", tipo: "pierde", peso: 15 },
+{ texto: "Intenta de nuevo x4", tipo: "pierde", peso: 15 },
+{ texto: "Gracias por participar", tipo: "pierde", peso: 15 },
+{ texto: "10% de descuento", tipo: "premio", peso: 6 },
+{ texto: "15% de descuento", tipo: "premio", peso: 4 },
+{ texto: "Llavero", tipo: "premio", peso: 2 },
+{ texto: "Energizante", tipo: "premio", peso: 1.5 },
+{ texto: "Bebida con alcohol", tipo: "premio", peso: 1 },
+{ texto: "Gorra", tipo: "premio", peso: 0.3 },
+{ texto: "Remera", tipo: "premio", peso: 0.2 }
+ ];
+function obtenerPremioAleatorio() {
+const pesoTotal = opciones.reduce((acc, item) => acc + item.peso, 0);
+let random = Math.random() * pesoTotal;
+for (const item of opciones) {
+if (random < item.peso) return item;
+random -= item.peso;
+}
+return opciones[0];
+}
+const juegoGuardado = localStorage.getItem(STORAGE_KEY);
+if (juegoGuardado) {
+const datos = JSON.parse(juegoGuardado);
+mostrarPantallaYaJugado(datos.premio);
+} else {
+mostrarJuego();
+}
+function mostrarPantallaYaJugado(premio) {
+const container = document.getElementById('mainCard');
+const esPremio = premio.tipo === 'premio';
+container.innerHTML = &lt;h1&gt;🎉 ¡Raspa y Gana! 🎉&lt;/h1&gt; &lt;div class="already-played"&gt; &lt;h2&gt;⚠️ Ya usaste tu oportunidad&lt;/h2&gt; &lt;p&gt;Solo se permite 1 intento por persona.&lt;/p&gt; &lt;div style="margin-top:20px; padding:15px; background:#fff; color:#222; border-radius:12px; border: 2px dashed #ffbd59;"&gt; &lt;span style="font-size:12px; color:#666; font-weight:bold; display:block; margin-bottom:5px;"&gt;TU RESULTADO FUE:&lt;/span&gt; &lt;strong style="font-size:18px; color:${esPremio ? '#ff5722' : '#555'};">${premio.texto}&lt;/strong&gt; &lt;/div&gt; &lt;/div&gt;;
+}
+function mostrarJuego() {
+const container = document.getElementById('mainCard');
+container.innerHTML = &lt;h1&gt;🎉 ¡Raspa y Gana! 🎉&lt;/h1&gt; &lt;p&gt;Desliza tu dedo sobre la tarjeta para descubrir si ganaste.&lt;/p&gt; &lt;div class="scratch-area"&gt; &lt;div class="prize"&gt; &lt;h2 id="prize-title"&gt;🎁 ¡FELICIDADES!&lt;/h2&gt; &lt;p id="prize-text"&gt;Cargando...&lt;/p&gt; &lt;/div&gt; &lt;canvas id="scratchCanvas" width="280" height="160"&gt;&lt;/canvas&gt; &lt;/div&gt;;
+initScratch();
+}
+let canvas, ctx, isDrawing = false, isRevealed = false, audioCtx = null, premioActual = null;
+function initAudio() {
+if (!audioCtx) {
+audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+}
+}
+function playScratchSound() {
+if (!audioCtx) return;
+try {
+const osc = audioCtx.createOscillator();
+const gain = audioCtx.createGain();
+osc.type = 'sawtooth';
+osc.frequency.setValueAtTime(100 + Math.random() * 200, audioCtx.currentTime);
+gain.gain.setValueAtTime(0.02, audioCtx.currentTime);
+gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.05);
+osc.connect(gain);
+gain.connect(audioCtx.destination);
+osc.start();
+osc.stop(audioCtx.currentTime + 0.05);
+} catch(e) {}
+}
+function playWinSound() {
+if (!audioCtx) return;
+try {
+const now = audioCtx.currentTime;
+const osc = audioCtx.createOscillator();
+const gain = audioCtx.createGain();
+osc.type = 'triangle';
+osc.frequency.setValueAtTime(440, now);
+osc.frequency.setValueAtTime(554.37, now + 0.1);
+osc.frequency.setValueAtTime(659.25, now + 0.2);
+gain.gain.setValueAtTime(0.1, now);
+gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+osc.connect(gain);
+gain.connect(audioCtx.destination);
+osc.start(now);
+osc.stop(now + 0.5);
+} catch(e) {}
+}
+function initScratch() {
+canvas = document.getElementById('scratchCanvas');
+ctx = canvas.getContext('2d');
+isRevealed = false;
+premioActual = obtenerPremioAleatorio();
+const titleElem = document.getElementById('prize-title');
+const textElem = document.getElementById('prize-text');
+textElem.innerText = premioActual.texto;
+if (premioActual.tipo === "premio") {
+titleElem.innerText = "🎁 ¡FELICIDADES!";
+titleElem.style.color = "#ff5722";
+} else {
+titleElem.innerText = "😅 ¡CASI!";
+titleElem.style.color = "#666";
+}
+ctx.globalCompositeOperation = 'source-over';
+const grad = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+grad.addColorStop(0, '#B0B0B0');
+grad.addColorStop(0.5, '#E0E0E0');
+grad.addColorStop(1, '#999999');
+ctx.fillStyle = grad;
+ctx.fillRect(0, 0, canvas.width, canvas.height);
+ctx.fillStyle = '#444';
+ctx.font = 'bold 16px sans-serif';
+ctx.textAlign = 'center';
+ctx.fillText('✨ RASPA AQUÍ ✨', canvas.width / 2, canvas.height / 2 + 5);
+canvas.addEventListener('mousedown', (e) => { isDrawing = true; scratch(e); });
+canvas.addEventListener('mousemove', scratch);
+canvas.addEventListener('mouseup', () => isDrawing = false);
+canvas.addEventListener('mouseleave', () => isDrawing = false);
+canvas.addEventListener('touchstart', (e) => { isDrawing = true; scratch(e); });
+canvas.addEventListener('touchmove', scratch);
+canvas.addEventListener('touchend', () => isDrawing = false);
+}
+function checkScratchPercentage() {
+if (isRevealed) return;
+const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+let clearPixels = 0;
+for (let i = 3; i < imageData.data.length; i += 4) {
+if (imageData.data[i] === 0) clearPixels++;
+}
+const percentage = (clearPixels / (canvas.width * canvas.height)) * 100;
+if (percentage > 45) {
+isRevealed = true;
+ctx.clearRect(0, 0, canvas.width, canvas.height);
+localStorage.setItem(STORAGE_KEY, JSON.stringify({
+jugado: true,
+premio: premioActual,
+fecha: new Date().toISOString()
+}));
+if (premioActual.tipo === "premio") {
+playWinSound();
+if (typeof confetti === 'function') {
+confetti({ particleCount: 80, spread: 60, origin: { y: 0.6 } });
+}
+}
+}
+}
+function scratch(e) {
+if (!isDrawing || isRevealed) return;
+initAudio();
+const rect = canvas.getBoundingClientRect();
+const x = (e.clientX || (e.touches && e.touches[0].clientX)) - rect.left;
+const y = (e.clientY || (e.touches && e.touches[0].clientY)) - rect.top;
+ctx.globalCompositeOperation = 'destination-out';
+ctx.beginPath();
+ctx.arc(x, y, 20, 0, Math.PI * 2);
+ctx.fill();
+playScratchSound();
+checkScratchPercentage();
+}
+</script>
+</body>
+</html>
